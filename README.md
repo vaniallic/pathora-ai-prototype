@@ -38,3 +38,14 @@ Status data "Terverifikasi", kolom harga, durasi, kuota, dan tingkat kesulitan t
 - Data waktu tempuh antar desa. Tanpa ini, kegiatan di desa berbeda tidak digabung dalam satu hari.
 - Pemanggilan API model bahasa. Kunci API harus disimpan di backend, bukan di front-end.
 - Angka aturan di `ATURAN` (planner.py) adalah asumsi awal untuk diuji.
+
+
+## Menyambung ke Gemini (gratis untuk demo)
+
+1. Ambil kunci di Google AI Studio (aistudio.google.com), menu "Get API key".
+2. Di Terminal (kunci hanya hidup di sesi ini, jangan disimpan di berkas):
+   `export GEMINI_API_KEY="KUNCI_KAMU"`
+3. Jalankan: `python3 asisten.py "3 hari, suka alam" --data out_demo/kegiatan_siap.json --semua out_demo/kegiatan.json`
+
+Pilihan `--penyedia anthropic` memakai Claude (butuh `pip install anthropic` dan `ANTHROPIC_API_KEY`).
+Penghubung Gemini BELUM diuji dengan kunci asli.

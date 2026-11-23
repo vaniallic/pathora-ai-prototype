@@ -44,6 +44,8 @@ def main():
     ap.add_argument("--semua", help="out/kegiatan.json (untuk memeriksa nama kegiatan di penjelasan)")
     ap.add_argument("--jarak", help="CSV waktu tempuh antar desa")
     ap.add_argument("--prefs-json", help="lewati model: pakai preferensi ini")
+    ap.add_argument("--penyedia", default="gemini", choices=["gemini", "anthropic"],
+                    help="model bahasa yang dipakai (default gemini)")
     a = ap.parse_args()
 
     siap = json.load(open(a.data, encoding="utf-8"))
@@ -55,8 +57,8 @@ def main():
         rencana = susun(siap, prefs, jarak)
         print(narasi_cadangan(rencana))
         return
-    from llm import buat_llm_anthropic
-    hasil = jawab(a.teks, siap, buat_llm_anthropic(), jarak, semua)
+    from llm import buat_llm
+    hasil = jawab(a.teks, siap, buat_llm(a.penyedia), jarak, semua)
     print(hasil["pesan"])
 
 
