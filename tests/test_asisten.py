@@ -84,8 +84,8 @@ class TesNarasi(unittest.TestCase):
         kosong = susun([], {"durasi_hari": 2})
         def llm(s, u):
             raise AssertionError("model tidak boleh dipanggil")
-        self.assertIn("belum ada kegiatan terverifikasi", tulis_narasi(kosong, [], llm))
-        self.assertIn("belum ada kegiatan terverifikasi", narasi_cadangan(kosong))
+        self.assertIn("belum ada kegiatan yang cocok", tulis_narasi(kosong, [], llm))
+        self.assertIn("belum ada kegiatan yang cocok", narasi_cadangan(kosong))
 
 
 class TesJawab(unittest.TestCase):
@@ -103,3 +103,33 @@ class TesJawab(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TesKetahanan(unittest.TestCase):
+    def _siap(self):
+        return [{"id": "X1", "nama": "CONTOH A", "desa": "D", "tema": "alam", "tingkat_kesulitan": "mudah",
+                 "harga_per_orang": 10000, "durasi_jam": 2, "kuota": 10, "hari_tutup": []}]
+
+    def test_durasi_di_luar_batas_tidak_crash(self):
+        import json as _j
+        llm = lambda s, u: _j.dumps({"durasi_hari": 30, "tema": ["alam"]})
+        h = jawab("30 hari", self._siap(), llm)
+        self.assertEqual(h["tipe"], "tanya")
+
+    def test_api_error_saat_ekstraksi_tidak_crash(self):
+        def llm(s, u):
+            raise RuntimeError("HTTP 429")
+        h = jawab("3 hari", self._siap(), llm)
+        self.assertEqual(h["tipe"], "galat")
+
+    def test_api_error_saat_narasi_pakai_teks_cadangan(self):
+        import json as _j
+        n = {"n": 0}
+        def llm(s, u):
+            n["n"] += 1
+            if n["n"] == 1:
+                return _j.dumps({"durasi_hari": 1, "tema": ["alam"]})
+            raise RuntimeError("HTTP 500")
+        h = jawab("1 hari alam", self._siap(), llm)
+        self.assertEqual(h["tipe"], "rencana")
+        self.assertIn("CONTOH A", h["pesan"])

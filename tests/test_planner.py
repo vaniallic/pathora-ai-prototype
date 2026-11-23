@@ -143,7 +143,8 @@ class TesPlanner(unittest.TestCase):
     def test_kuota_lebih_kecil_dari_rombongan(self):
         data = [contoh("A", kuota=2)]
         hasil = susun(data, {"durasi_hari": 1, "jumlah_orang": 5})
-        self.assertEqual(hasil["hari"][0]["kegiatan"], [])
+        self.assertFalse(any(h["kegiatan"] for h in hasil["hari"]))
+        self.assertTrue(any("kuota" in c for c in hasil["catatan"]))
 
     def test_kegiatan_tidak_dipakai_dua_kali(self):
         data = [contoh("A")]

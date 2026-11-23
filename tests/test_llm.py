@@ -36,13 +36,40 @@ class TesGemini(unittest.TestCase):
                 f("s", "u")
         self.assertIn("SAFETY", str(c.exception))
 
-    def test_http_error_jadi_error_jelas(self):
-        err = urllib.error.HTTPError("u", 429, "Too Many", {}, io.BytesIO(b"kuota habis"))
-        with mock.patch("urllib.request.urlopen", side_effect=err):
+    def test_http_429_diulang_lalu_error_jelas(self):
+        def err():
+            return urllib.error.HTTPError("u", 429, "Too Many", {}, io.BytesIO(b"kuota habis"))
+        with mock.patch("urllib.request.urlopen", side_effect=[err(), err(), err()]) as m, \
+                mock.patch("time.sleep"):
             f = llm.buat_llm_gemini(api_key="k", model="m")
             with self.assertRaises(RuntimeError) as c:
                 f("s", "u")
         self.assertIn("429", str(c.exception))
+        self.assertEqual(m.call_count, 3)
+
+    def test_salah_kunci_tidak_diulang(self):
+        err = urllib.error.HTTPError("u", 400, "Bad", {}, io.BytesIO(b"API key not valid"))
+        with mock.patch("urllib.request.urlopen", side_effect=err) as m, mock.patch("time.sleep"):
+            f = llm.buat_llm_gemini(api_key="k", model="m")
+            with self.assertRaises(RuntimeError):
+                f("s", "u")
+        self.assertEqual(m.call_count, 1)
+
+    def test_timeout_diulang_lalu_berhasil(self):
+        ok = _balasan({"candidates": [{"content": {"parts": [{"text": "Berhasil"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=[TimeoutError("read timed out"), ok]) as m, \
+                mock.patch("time.sleep"):
+            f = llm.buat_llm_gemini(api_key="k", model="m")
+            self.assertEqual(f("s", "u"), "Berhasil")
+        self.assertEqual(m.call_count, 2)
+
+    def test_timeout_terus_menerus_jadi_runtime_error(self):
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("read timed out")), \
+                mock.patch("time.sleep"):
+            f = llm.buat_llm_gemini(api_key="k", model="m")
+            with self.assertRaises(RuntimeError) as c:
+                f("s", "u")
+        self.assertIn("TimeoutError", str(c.exception))
 
     def test_penyedia_tidak_dikenal(self):
         with self.assertRaises(ValueError):

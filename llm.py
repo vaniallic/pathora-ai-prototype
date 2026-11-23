@@ -25,13 +25,15 @@ def buat_llm_anthropic(model=None, api_key=None, maks_token=1024):
     return llm
 
 
-def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=30):
+def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_coba=3, jeda=5):
     """Penghubung ke Gemini lewat REST (hanya pustaka bawaan Python, tanpa pip install).
 
-    BELUM DIUJI dengan kunci asli. Butuh GEMINI_API_KEY (dari Google AI Studio) di variabel
-    lingkungan. Model bisa diatur lewat GEMINI_MODEL. JANGAN simpan kunci di kode atau repo.
+    Mengulang otomatis kalau timeout, batas laju (429), atau gangguan server (5xx).
+    Butuh GEMINI_API_KEY (dari Google AI Studio) di variabel lingkungan. Model bisa diatur lewat
+    GEMINI_MODEL. JANGAN simpan kunci di kode atau repo.
     """
     import json
+    import time
     import urllib.error
     import urllib.request
 
@@ -42,25 +44,36 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=30):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{nama_model}:generateContent"
 
     def llm(system, user):
-        badan = {
+        badan = json.dumps({
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {"maxOutputTokens": maks_token},
-        }
-        req = urllib.request.Request(
-            url, data=json.dumps(badan).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": kunci}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                data = json.load(r)
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"Gemini menolak permintaan (HTTP {e.code}): {e.read().decode('utf-8', 'replace')[:300]}")
-        kandidat = (data.get("candidates") or [{}])[0]
-        bagian = (kandidat.get("content") or {}).get("parts") or []
-        teks = "".join(b.get("text", "") for b in bagian)
-        if not teks:
-            raise RuntimeError(f"Gemini tidak mengembalikan teks (alasan: {kandidat.get('finishReason', 'tidak diketahui')})")
-        return teks
+        }).encode("utf-8")
+        masalah = ""
+        for percobaan in range(maks_coba):
+            req = urllib.request.Request(
+                url, data=badan, method="POST",
+                headers={"Content-Type": "application/json", "x-goog-api-key": kunci})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    data = json.load(r)
+            except urllib.error.HTTPError as e:
+                isi = e.read().decode("utf-8", "replace")[:300]
+                masalah = f"Gemini menolak permintaan (HTTP {e.code}): {isi}"
+                if e.code not in (429, 500, 502, 503, 504):
+                    raise RuntimeError(masalah)  # salah kunci, salah nama model, dsb: ulang tidak membantu
+            except (TimeoutError, urllib.error.URLError, OSError) as e:
+                masalah = f"Tidak bisa terhubung ke Gemini atau terlalu lama menunggu ({type(e).__name__}: {e})"
+            else:
+                kandidat = (data.get("candidates") or [{}])[0]
+                bagian = (kandidat.get("content") or {}).get("parts") or []
+                teks = "".join(b.get("text", "") for b in bagian)
+                if not teks:
+                    raise RuntimeError(f"Gemini tidak mengembalikan teks (alasan: {kandidat.get('finishReason', 'tidak diketahui')})")
+                return teks
+            if percobaan < maks_coba - 1:
+                time.sleep(jeda * (percobaan + 1))
+        raise RuntimeError(masalah)
 
     return llm
 

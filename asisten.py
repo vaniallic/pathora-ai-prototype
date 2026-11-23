@@ -10,7 +10,7 @@ import argparse
 import csv
 import json
 
-from ekstrak import ekstrak_preferensi, validasi_prefs
+from ekstrak import GagalEkstraksi, ekstrak_preferensi, validasi_prefs
 from narasi import narasi_cadangan, tulis_narasi
 from planner import susun
 
@@ -28,12 +28,28 @@ def muat_jarak(path):
 
 
 def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None):
-    prefs = ekstrak_preferensi(teks, llm)
+    try:
+        prefs = ekstrak_preferensi(teks, llm)
+    except GagalEkstraksi as e:
+        if "durasi_hari" in str(e):
+            return {"tipe": "tanya", "pesan": "Aku bisa menyusun rencana sampai 14 hari. "
+                    "Berapa hari yang ingin kamu rencanakan?"}
+        return {"tipe": "tanya", "pesan": "Maaf, aku belum bisa memahami permintaanmu. "
+                "Coba ceritakan lagi: berapa hari kamu di sana dan kegiatan seperti apa yang kamu suka?"}
+    except RuntimeError:
+        return {"tipe": "galat", "pesan": "Maaf, asisten sedang sibuk. Coba lagi sebentar lagi."}
+    if prefs["di_luar_cakupan"]:
+        return {"tipe": "tanya", "pesan": "Maaf, Pathora fokus pada kegiatan alam dan budaya lokal di Bali, "
+                "jadi aku belum bisa membantu soal itu (misalnya hotel, tiket, atau restoran). "
+                "Kalau mau, ceritakan berapa hari kamu di Bali dan kegiatan seperti apa yang kamu suka."}
     if prefs["durasi_hari"] is None:
         pesan = " ".join(prefs["perlu_tanya"]) or "Berapa hari kamu berencana di sana?"
         return {"tipe": "tanya", "pesan": pesan}
     rencana = susun(kegiatan_siap, prefs, jarak)
-    pesan = tulis_narasi(rencana, semua_kegiatan or kegiatan_siap, llm)
+    try:
+        pesan = tulis_narasi(rencana, semua_kegiatan or kegiatan_siap, llm)
+    except RuntimeError:
+        pesan = narasi_cadangan(rencana)  # model bermasalah: pakai teks dari data
     return {"tipe": "rencana", "prefs": prefs, "rencana": rencana, "pesan": pesan}
 
 
