@@ -6,4 +6,5 @@ backend/*.db
 out*/
 *.zip
 push/
+push2/
 .DS_Store
