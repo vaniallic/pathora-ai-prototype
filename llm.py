@@ -1,26 +1,44 @@
 """Penghubung ke API model bahasa.
 
-BELUM DIUJI: kode ini belum pernah dijalankan dengan kunci API asli. Uji dulu di server/backend.
 Aturan penting: kunci API hanya boleh ada di server (variabel lingkungan), JANGAN di kode front-end.
 
-Butuh: pip install anthropic, lalu atur ANTHROPIC_API_KEY dan ANTHROPIC_MODEL
-(nama model dipilih tim, lihat dokumentasi resmi untuk nama yang tersedia).
+Claude: pip install anthropic, lalu atur ANTHROPIC_API_KEY (dan opsional ANTHROPIC_MODEL,
+default claude-sonnet-5-5). Backend (backend/) memakai Claude secara default.
 """
 import os
 
 
-def buat_llm_anthropic(model=None, api_key=None, maks_token=1024):
+MODEL_ANTHROPIC_DEFAULT = "claude-sonnet-5-5"
+
+
+def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, maks_coba=2):
+    """Penghubung ke Claude (Anthropic). Kunci dibaca dari ANTHROPIC_API_KEY di server.
+
+    Semua galat dari API diubah jadi RuntimeError, supaya asisten.py bisa jatuh ke teks cadangan
+    alih-alih membuat server error 500.
+    """
     import anthropic  # diimpor di sini supaya bagian lain tetap bisa dites tanpa paketnya
 
-    client = anthropic.Anthropic(api_key=api_key or os.environ["ANTHROPIC_API_KEY"])
-    nama_model = model or os.environ["ANTHROPIC_MODEL"]
+    kunci = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not kunci:
+        raise RuntimeError("ANTHROPIC_API_KEY belum diatur (isi di berkas .env di server).")
+    client = anthropic.Anthropic(api_key=kunci, timeout=timeout, max_retries=maks_coba)
+    nama_model = model or os.environ.get("ANTHROPIC_MODEL") or MODEL_ANTHROPIC_DEFAULT
 
     def llm(system, user):
-        r = client.messages.create(
-            model=nama_model, max_tokens=maks_token, system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        try:
+            r = client.messages.create(
+                model=nama_model, max_tokens=maks_token, system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+        except anthropic.APIStatusError as e:
+            raise RuntimeError(f"Claude menolak permintaan (HTTP {e.status_code}): {str(e)[:300]}") from e
+        except anthropic.APIError as e:
+            raise RuntimeError(f"Tidak bisa terhubung ke Claude ({type(e).__name__}: {e})") from e
+        teks = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        if not teks:
+            raise RuntimeError(f"Claude tidak mengembalikan teks (stop_reason: {r.stop_reason})")
+        return teks
 
     return llm
 

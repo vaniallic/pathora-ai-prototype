@@ -78,3 +78,34 @@ class TesGemini(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TesAnthropic(unittest.TestCase):
+    """Tes penghubung Claude TANPA internet: klien anthropic dipalsukan."""
+
+    def test_mengambil_teks_dan_galat_jadi_runtimeerror(self):
+        try:
+            import anthropic
+        except ImportError:
+            self.skipTest("paket anthropic belum terpasang")
+        blok = mock.Mock(type="text", text="Halo")
+        klien = mock.Mock()
+        klien.messages.create.return_value = mock.Mock(content=[blok], stop_reason="end_turn")
+        with mock.patch("anthropic.Anthropic", return_value=klien):
+            f = llm.buat_llm_anthropic(api_key="kunci-palsu", model="model-x")
+            self.assertEqual(f("sistem", "pengguna"), "Halo")
+            arg = klien.messages.create.call_args.kwargs
+            self.assertEqual(arg["model"], "model-x")
+            self.assertEqual(arg["system"], "sistem")
+            klien.messages.create.side_effect = anthropic.APIConnectionError(request=mock.Mock())
+            with self.assertRaises(RuntimeError):
+                f("s", "u")
+
+    def test_tanpa_kunci_error_jelas(self):
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            self.skipTest("paket anthropic belum terpasang")
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                llm.buat_llm_anthropic()
