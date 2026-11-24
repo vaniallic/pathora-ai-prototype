@@ -131,7 +131,16 @@ def create_app(db_path=None, pembuat_llm=None, demo=None):
 
     def ambil_llm():
         if "llm" not in llm_cache:
-            llm_cache["llm"] = pembuat_llm()
+            asli = pembuat_llm()
+
+            def llm_tercatat(system, user):
+                # asisten.py mengubah galat model jadi pesan ramah; di sini galat aslinya dicatat ke terminal
+                try:
+                    return asli(system, user)
+                except Exception as e:
+                    log.error("Panggilan model bahasa gagal: %s", e)
+                    raise
+            llm_cache["llm"] = llm_tercatat
         return llm_cache["llm"]
 
     # ---------- umum ----------
