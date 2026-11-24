@@ -133,3 +133,15 @@ class TesKetahanan(unittest.TestCase):
         h = jawab("1 hari alam", self._siap(), llm)
         self.assertEqual(h["tipe"], "rencana")
         self.assertIn("CONTOH A", h["pesan"])
+
+
+class TesEkstrakAturan(unittest.TestCase):
+    def test_contoh_permintaan(self):
+        from ekstrak import ekstrak_aturan
+        p = ekstrak_aturan("Kami sekeluarga, 4 orang termasuk 2 anak kecil, mau seminggu di Bali timur. Santai aja.")
+        self.assertEqual((p["durasi_hari"], p["jumlah_orang"], p["tingkat_aktivitas"]), (7, 4, "santai"))
+        self.assertIn("anak_kecil", p["kebutuhan_khusus"])
+        p = ekstrak_aturan("dua hari, penasaran budaya lokal dan tenun")
+        self.assertEqual((p["durasi_hari"], p["tema"]), (2, ["budaya"]))
+        p = ekstrak_aturan("cariin hotel murah dong")
+        self.assertTrue(p["di_luar_cakupan"])

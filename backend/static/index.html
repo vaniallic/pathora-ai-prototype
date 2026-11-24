@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pathora - uji backend</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; color: #1d2a24; background: #f7f5ef; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .kecil { color: #66706a; font-size: 13px; }
+  .kartu { background: #fff; border: 1px solid #e2ddd0; border-radius: 10px; padding: 16px; margin: 16px 0; }
+  input, textarea, button { font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid #c9c3b4; box-sizing: border-box; }
+  input, textarea { width: 100%; margin: 4px 0 10px; }
+  button { background: #2f6b4f; color: #fff; border: none; cursor: pointer; }
+  button.sekunder { background: #fff; color: #2f6b4f; border: 1px solid #2f6b4f; }
+  .pesan { white-space: pre-wrap; background: #f1efe7; padding: 12px; border-radius: 8px; margin-top: 10px; }
+  .galat { color: #a3352b; }
+  .tersembunyi { display: none; }
+</style>
+</head>
+<body>
+<h1>Pathora</h1>
+<div class="kecil">Halaman uji backend. Frontend tim tinggal memanggil endpoint yang sama (lihat <a href="/docs">/docs</a>).</div>
+
+<div id="auth" class="kartu">
+  <b id="judulAuth">Masuk</b>
+  <div id="kolomNama" class="tersembunyi"><input id="nama" placeholder="Nama"></div>
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password (min. 8 karakter)">
+  <button id="tombolAuth">Masuk</button>
+  <button id="ganti" class="sekunder">Belum punya akun? Daftar</button>
+  <div id="galatAuth" class="galat"></div>
+</div>
+
+<div id="aplikasi" class="tersembunyi">
+  <div class="kartu">
+    <div>Halo, <b id="namaPengguna"></b> · <a href="#" id="keluar">Keluar</a></div>
+    <textarea id="teks" rows="3" placeholder="Contoh: 3 hari berdua di Bali timur, suka air terjun, jangan yang berat ya"></textarea>
+    <button id="kirim">Susun rencana</button>
+    <div id="jawaban"></div>
+  </div>
+  <div class="kartu"><b>Riwayat</b><div id="riwayat" class="kecil"></div></div>
+</div>
+
+<script>
+let mode = "login", token = null, lanjutan = null;
+const $ = id => document.getElementById(id);
+
+async function api(path, opsi = {}) {
+  const r = await fetch(path, { ...opsi, headers: { "Content-Type": "application/json",
+    ...(token ? { Authorization: "Bearer " + token } : {}) } });
+  const isi = r.status === 204 ? null : await r.json();
+  if (!r.ok) throw new Error(typeof isi?.detail === "string" ? isi.detail : "Data belum lengkap atau tidak valid.");
+  return isi;
+}
+
+$("ganti").onclick = () => {
+  mode = mode === "login" ? "signup" : "login";
+  $("judulAuth").textContent = $("tombolAuth").textContent = mode === "login" ? "Masuk" : "Daftar";
+  $("ganti").textContent = mode === "login" ? "Belum punya akun? Daftar" : "Sudah punya akun? Masuk";
+  $("kolomNama").classList.toggle("tersembunyi", mode === "login");
+};
+
+$("tombolAuth").onclick = async () => {
+  $("galatAuth").textContent = "";
+  try {
+    const badan = { email: $("email").value, password: $("password").value };
+    if (mode === "signup") badan.nama = $("nama").value;
+    const h = await api("/api/auth/" + mode, { method: "POST", body: JSON.stringify(badan) });
+    masuk(h.token, h.pengguna);
+  } catch (e) { $("galatAuth").textContent = e.message; }
+};
+
+function masuk(t, p) {
+  token = t;
+  $("namaPengguna").textContent = p.nama;
+  $("auth").classList.add("tersembunyi");
+  $("aplikasi").classList.remove("tersembunyi");
+  muatRiwayat();
+}
+
+$("keluar").onclick = e => { e.preventDefault(); token = null; location.reload(); };
+
+$("kirim").onclick = async () => {
+  const teks = $("teks").value.trim();
+  if (!teks) return;
+  $("kirim").disabled = true;
+  $("jawaban").innerHTML = '<div class="pesan">Sedang menyusun...</div>';
+  try {
+    const h = await api("/api/rencana", { method: "POST", body: JSON.stringify({ teks, lanjutan_dari: lanjutan }) });
+    lanjutan = h.tipe === "tanya" ? h.id : null;  // jawaban berikutnya melanjutkan pertanyaan ini
+    const div = document.createElement("div");
+    div.className = "pesan"; div.textContent = h.pesan;
+    $("jawaban").replaceChildren(div);
+    $("teks").value = "";
+    $("teks").placeholder = lanjutan ? "Jawab pertanyaan asisten di sini" : "Tulis permintaan baru";
+    muatRiwayat();
+  } catch (e) { $("jawaban").innerHTML = ""; $("jawaban").textContent = e.message; }
+  $("kirim").disabled = false;
+};
+
+async function muatRiwayat() {
+  const daftar = await api("/api/rencana");
+  $("riwayat").replaceChildren(...daftar.map(r => {
+    const d = document.createElement("div");
+    d.textContent = `#${r.id} [${r.tipe}] ${r.teks.slice(0, 80)}`;
+    return d;
+  }));
+}
+</script>
+</body>
+</html>

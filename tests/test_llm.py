@@ -45,7 +45,7 @@ class TesGemini(unittest.TestCase):
             with self.assertRaises(RuntimeError) as c:
                 f("s", "u")
         self.assertIn("429", str(c.exception))
-        self.assertEqual(m.call_count, 3)
+        self.assertEqual(m.call_count, 2)  # maks_coba default 2
 
     def test_salah_kunci_tidak_diulang(self):
         err = urllib.error.HTTPError("u", 400, "Bad", {}, io.BytesIO(b"API key not valid"))
@@ -78,3 +78,54 @@ class TesGemini(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TesAnthropic(unittest.TestCase):
+    """Tes penghubung Claude TANPA internet: klien anthropic dipalsukan."""
+
+    def test_mengambil_teks_dan_galat_jadi_runtimeerror(self):
+        try:
+            import anthropic
+        except ImportError:
+            self.skipTest("paket anthropic belum terpasang")
+        blok = mock.Mock(type="text", text="Halo")
+        klien = mock.Mock()
+        klien.messages.create.return_value = mock.Mock(content=[blok], stop_reason="end_turn")
+        with mock.patch("anthropic.Anthropic", return_value=klien):
+            f = llm.buat_llm_anthropic(api_key="kunci-palsu", model="model-x")
+            self.assertEqual(f("sistem", "pengguna"), "Halo")
+            arg = klien.messages.create.call_args.kwargs
+            self.assertEqual(arg["model"], "model-x")
+            self.assertEqual(arg["system"], "sistem")
+            klien.messages.create.side_effect = anthropic.APIConnectionError(request=mock.Mock())
+            with self.assertRaises(RuntimeError):
+                f("s", "u")
+
+    def test_tanpa_kunci_error_jelas(self):
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            self.skipTest("paket anthropic belum terpasang")
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                llm.buat_llm_anthropic()
+
+
+class TesGeminiCadangan(unittest.TestCase):
+    def test_model_sibuk_pindah_ke_cadangan(self):
+        def palsu(req, timeout=None):
+            if "model-a" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 503, "sibuk", {}, io.BytesIO(b"high demand"))
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "siap"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu), mock.patch("time.sleep"):
+            f = llm.buat_llm_gemini(api_key="k", model="model-a,model-b")
+            self.assertEqual(f("s", "u"), "siap")
+
+    def test_model_404_pindah_ke_cadangan(self):
+        def palsu(req, timeout=None):
+            if "model-lama" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 404, "hilang", {}, io.BytesIO(b"no longer available"))
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "siap"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu):
+            f = llm.buat_llm_gemini(api_key="k", model="model-lama,model-baru")
+            self.assertEqual(f("s", "u"), "siap")
