@@ -104,3 +104,81 @@ def ekstrak_preferensi(teks, llm, maks_coba=2, system_prompt=None, hari_ini=None
             terakhir = e
             pesan = f"{dasar}\n\n(Balasan sebelumnya tidak valid: {e}. Balas JSON sesuai skema saja.)"
     raise GagalEkstraksi(f"Gagal memahami permintaan setelah {maks_coba} percobaan: {terakhir}")
+
+
+# ---------- Cadangan tanpa model bahasa ----------
+# Dipakai hanya kalau model bahasa sedang tidak bisa dihubungi (misalnya server Gemini penuh).
+# Hasilnya lebih kasar dari model, tapi tetap melewati validasi yang sama.
+ANGKA_KATA = {"satu": 1, "se": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5, "enam": 6, "tujuh": 7,
+              "delapan": 8, "sembilan": 9, "sepuluh": 10}
+KATA_TEMA = {
+    "alam": ("alam", "air terjun", "pantai", "gunung", "bukit", "sawah", "pemandangan", "trekking", "hutan", "danau"),
+    "budaya": ("budaya", "tradisi", "tradisional", "adat", "tenun", "garam", "arak", "kerajinan", "desa adat", "lokal"),
+    "spiritual": ("spiritual", "pura", "meditasi", "yoga", "upacara", "melukat"),
+    "satwa": ("satwa", "hewan", "binatang", "burung", "penyu", "lumba"),
+    "petualangan": ("petualangan", "camping", "kemah", "menantang", "ekstrem", "seru"),
+}
+KATA_SANTAI = ("santai", "jangan yang berat", "nggak mau capek", "tidak mau capek", "gak mau capek",
+               "gampang capek", "jangan capek", "ringan", "nggak berat", "tidak berat")
+KATA_AKTIF = ("aktif", "menantang", "berat juga", "kuat jalan", "fit")
+KATA_LUAR = ("hotel", "tiket pesawat", "penginapan", "restoran", "sewa mobil", "villa")
+
+
+def _ada(teks, kata):
+    return any(re.search(r"\b" + re.escape(k) + r"\b", teks) for k in kata)
+
+
+def ekstrak_aturan(teks, hari_ini=None):
+    """Menebak preferensi dari kata kunci, tanpa model bahasa. Selalu lolos validasi_prefs."""
+    t = " " + (teks or "").lower() + " "
+    durasi = None
+    m = re.search(r"(\d{1,2})\s*(hari|malam)", t)
+    if m:
+        durasi = int(m.group(1)) + (1 if m.group(2) == "malam" else 0)
+    else:
+        m = re.search(r"\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)\s+(hari|malam)", t)
+        if m:
+            durasi = ANGKA_KATA[m.group(1)] + (1 if m.group(2) == "malam" else 0)
+        elif _ada(t, ("seminggu", "satu minggu", "1 minggu")):
+            durasi = 7
+        elif _ada(t, ("sehari", "seharian")):
+            durasi = 1
+        elif _ada(t, ("weekend", "akhir pekan")):
+            durasi = 2
+    if durasi is not None:
+        durasi = max(1, min(durasi, 14))
+
+    orang = None
+    m = re.search(r"(\d{1,2})\s*orang", t)
+    if m:
+        orang = max(1, min(int(m.group(1)), 50))
+    elif _ada(t, ("berdua", "sama pacar", "sama pacarku", "pasangan", "suami", "istri")):
+        orang = 2
+    elif _ada(t, ("bertiga",)):
+        orang = 3
+    elif _ada(t, ("berempat",)):
+        orang = 4
+    elif _ada(t, ("sendiri", "sendirian", "solo")):
+        orang = 1
+
+    tema = [nama for nama, kata in KATA_TEMA.items() if _ada(t, kata)]
+    aktivitas = "santai" if _ada(t, KATA_SANTAI) else ("aktif" if _ada(t, KATA_AKTIF) else None)
+    kebutuhan = []
+    if _ada(t, ("anak", "anak kecil", "anak-anak", "balita", "bayi")):
+        kebutuhan.append("anak_kecil")
+    if _ada(t, ("lansia", "orang tua", "kakek", "nenek", "orangtua")):
+        kebutuhan.append("lansia")
+    if _ada(t, ("kursi roda",)):
+        kebutuhan.append("kursi_roda")
+    if _ada(t, ("vegetarian", "vegan")):
+        kebutuhan.append("vegetarian")
+    if _ada(t, ("alergi",)):
+        kebutuhan.append("alergi_makanan")
+    luar = _ada(t, KATA_LUAR) and not tema and durasi is None
+
+    return validasi_prefs({
+        "durasi_hari": durasi, "jumlah_orang": orang, "tema": tema, "tingkat_aktivitas": aktivitas,
+        "budget_per_hari": None, "tanggal_mulai": None, "lokasi_diminta": [], "kebutuhan_khusus": kebutuhan,
+        "minat_khusus": [], "di_luar_cakupan": luar, "catatan": "dipahami tanpa model bahasa",
+        "perlu_tanya": [] if durasi else ["Berapa hari kamu berencana di Bali?"],
+    }, hari_ini)

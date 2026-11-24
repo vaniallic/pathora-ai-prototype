@@ -124,9 +124,19 @@ class TesBackend(unittest.TestCase):
         app = create_app(db_path=Path(tempfile.mkdtemp()) / "x.db", pembuat_llm=rusak, demo=True)
         c = TestClient(app)
         tok = c.post("/api/auth/signup", json={"nama": "K", "email": "k@contoh.id", "password": "rahasia123"}).json()["token"]
-        r = c.post("/api/rencana", json={"teks": "2 hari"}, headers={"Authorization": "Bearer " + tok})
+        auth = {"Authorization": "Bearer " + tok}
+        # model mati: permintaan tetap dipahami lewat kata kunci, rencana tetap keluar
+        r = c.post("/api/rencana", json={"teks": "3 hari berdua, suka air terjun, jangan yang berat"}, headers=auth)
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["tipe"], "galat")
+        j = r.json()
+        self.assertEqual(j["tipe"], "rencana")
+        self.assertTrue(j["tanpa_model"])
+        self.assertEqual((j["prefs"]["durasi_hari"], j["prefs"]["jumlah_orang"]), (3, 2))
+        self.assertEqual(j["prefs"]["tema"], ["alam"])
+        self.assertEqual(j["prefs"]["tingkat_aktivitas"], "santai")
+        # tanpa durasi: bertanya balik
+        r = c.post("/api/rencana", json={"teks": "pengen lihat pura"}, headers=auth)
+        self.assertEqual(r.json()["tipe"], "tanya")
 
 
 if __name__ == "__main__":

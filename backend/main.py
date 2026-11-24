@@ -131,7 +131,15 @@ def create_app(db_path=None, pembuat_llm=None, demo=None):
 
     def ambil_llm():
         if "llm" not in llm_cache:
-            asli = pembuat_llm()
+            try:
+                asli = pembuat_llm()
+            except RuntimeError as e:  # misalnya kunci API belum diisi: pakai jalur cadangan, coba lagi nanti
+                log.error("Model bahasa tidak siap: %s", e)
+                alasan = str(e)
+
+                def mati(system, user):
+                    raise RuntimeError(alasan)
+                return mati
 
             def llm_tercatat(system, user):
                 # asisten.py mengubah galat model jadi pesan ramah; di sini galat aslinya dicatat ke terminal
@@ -193,7 +201,7 @@ def create_app(db_path=None, pembuat_llm=None, demo=None):
                 raise HTTPException(404, "Permintaan sebelumnya tidak ditemukan.")
             teks = f"{sebelumnya['teks']}\n{teks}"
         try:
-            hasil = jawab(teks, siap, ambil_llm(), jarak, semua)
+            hasil = jawab(teks, siap, ambil_llm(), jarak, semua, cadangan_aturan=True)
         except RuntimeError as e:  # misalnya kunci API belum diisi
             log.error("Model bahasa tidak siap: %s", e)
             llm_cache.clear()

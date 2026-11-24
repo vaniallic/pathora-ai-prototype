@@ -10,7 +10,7 @@ import argparse
 import csv
 import json
 
-from ekstrak import GagalEkstraksi, ekstrak_preferensi, validasi_prefs
+from ekstrak import GagalEkstraksi, ekstrak_aturan, ekstrak_preferensi, validasi_prefs
 from narasi import narasi_cadangan, tulis_narasi
 from planner import susun
 
@@ -27,7 +27,10 @@ def muat_jarak(path):
     return jarak
 
 
-def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None):
+def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None, cadangan_aturan=False):
+    """cadangan_aturan=True: kalau model bahasa tidak bisa dihubungi, permintaan dipahami lewat
+    kata kunci (ekstrak_aturan) dan penjelasan memakai teks dari data, supaya pengguna tetap dapat rencana."""
+    tanpa_model = False
     try:
         prefs = ekstrak_preferensi(teks, llm)
     except GagalEkstraksi as e:
@@ -37,7 +40,9 @@ def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None):
         return {"tipe": "tanya", "pesan": "Maaf, aku belum bisa memahami permintaanmu. "
                 "Coba ceritakan lagi: berapa hari kamu di sana dan kegiatan seperti apa yang kamu suka?"}
     except RuntimeError:
-        return {"tipe": "galat", "pesan": "Maaf, asisten sedang sibuk. Coba lagi sebentar lagi."}
+        if not cadangan_aturan:
+            return {"tipe": "galat", "pesan": "Maaf, asisten sedang sibuk. Coba lagi sebentar lagi."}
+        prefs, tanpa_model = ekstrak_aturan(teks), True
     if prefs["di_luar_cakupan"]:
         return {"tipe": "tanya", "pesan": "Maaf, Pathora fokus pada kegiatan alam dan budaya lokal di Bali, "
                 "jadi aku belum bisa membantu soal itu (misalnya hotel, tiket, atau restoran). "
@@ -46,11 +51,17 @@ def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None):
         pesan = " ".join(prefs["perlu_tanya"]) or "Berapa hari kamu berencana di sana?"
         return {"tipe": "tanya", "pesan": pesan}
     rencana = susun(kegiatan_siap, prefs, jarak)
-    try:
-        pesan = tulis_narasi(rencana, semua_kegiatan or kegiatan_siap, llm)
-    except RuntimeError:
-        pesan = narasi_cadangan(rencana)  # model bermasalah: pakai teks dari data
-    return {"tipe": "rencana", "prefs": prefs, "rencana": rencana, "pesan": pesan}
+    if tanpa_model:
+        pesan = narasi_cadangan(rencana)  # model sedang sibuk: jangan menunggu lagi, pakai teks dari data
+    else:
+        try:
+            pesan = tulis_narasi(rencana, semua_kegiatan or kegiatan_siap, llm)
+        except RuntimeError:
+            pesan = narasi_cadangan(rencana)  # model bermasalah: pakai teks dari data
+    hasil = {"tipe": "rencana", "prefs": prefs, "rencana": rencana, "pesan": pesan}
+    if tanpa_model:
+        hasil["tanpa_model"] = True
+    return hasil
 
 
 def main():
