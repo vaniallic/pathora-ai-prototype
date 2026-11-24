@@ -5,4 +5,10 @@ backend/*.db
 out*/
 *.zip
 push/
+push2/
 .DS_Store
+env
+env.txt
+*.env
+push3/
+deploy/

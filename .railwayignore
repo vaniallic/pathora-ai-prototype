@@ -1,0 +1,15 @@
+# Berkas yang tidak ikut di-upload saat "railway up" (kunci API dan database lokal tetap di laptop).
+.git
+**/__pycache__
+backend/.env
+backend/*.db
+out*/
+*.zip
+push/
+push2/
+.DS_Store
+env
+env.txt
+*.env
+push3/
+deploy/
