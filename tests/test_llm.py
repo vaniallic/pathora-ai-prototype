@@ -45,7 +45,7 @@ class TesGemini(unittest.TestCase):
             with self.assertRaises(RuntimeError) as c:
                 f("s", "u")
         self.assertIn("429", str(c.exception))
-        self.assertEqual(m.call_count, 3)
+        self.assertEqual(m.call_count, 2)  # maks_coba default 2
 
     def test_salah_kunci_tidak_diulang(self):
         err = urllib.error.HTTPError("u", 400, "Bad", {}, io.BytesIO(b"API key not valid"))
