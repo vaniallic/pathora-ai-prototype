@@ -129,3 +129,32 @@ class TesGeminiCadangan(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=palsu):
             f = llm.buat_llm_gemini(api_key="k", model="model-lama,model-baru")
             self.assertEqual(f("s", "u"), "siap")
+
+
+class TesBatasWaktu(unittest.TestCase):
+    def test_waktu_habis_tidak_memanggil_gemini(self):
+        with mock.patch("urllib.request.urlopen") as m:
+            f = llm.buat_llm_gemini(api_key="k", model="a,b", sisa_waktu=lambda: 0.2)
+            with self.assertRaises(RuntimeError):
+                f("s", "u")
+        m.assert_not_called()
+
+    def test_timeout_dipangkas_ke_sisa_waktu(self):
+        dipakai = []
+
+        def palsu(req, timeout=None):
+            dipakai.append(timeout)
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu):
+            llm.buat_llm_gemini(api_key="k", model="a", timeout=40, sisa_waktu=lambda: 5)("s", "u")
+        self.assertEqual(dipakai, [5])
+
+    def test_tidak_mengulang_kalau_waktu_tidak_cukup(self):
+        def sibuk(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 503, "sibuk", {}, io.BytesIO(b"busy"))
+        with mock.patch("urllib.request.urlopen", side_effect=sibuk) as m, mock.patch("time.sleep") as tidur:
+            f = llm.buat_llm_gemini(api_key="k", model="a", maks_coba=3, jeda=3, sisa_waktu=lambda: 2)
+            with self.assertRaises(RuntimeError):
+                f("s", "u")
+        self.assertEqual(m.call_count, 1)
+        tidur.assert_not_called()
