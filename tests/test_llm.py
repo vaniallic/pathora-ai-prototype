@@ -120,3 +120,12 @@ class TesGeminiCadangan(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=palsu), mock.patch("time.sleep"):
             f = llm.buat_llm_gemini(api_key="k", model="model-a,model-b")
             self.assertEqual(f("s", "u"), "siap")
+
+    def test_model_404_pindah_ke_cadangan(self):
+        def palsu(req, timeout=None):
+            if "model-lama" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 404, "hilang", {}, io.BytesIO(b"no longer available"))
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "siap"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu):
+            f = llm.buat_llm_gemini(api_key="k", model="model-lama,model-baru")
+            self.assertEqual(f("s", "u"), "siap")

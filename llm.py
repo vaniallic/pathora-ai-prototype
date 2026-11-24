@@ -48,7 +48,8 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
 
     Mengulang otomatis kalau timeout, batas laju (429), atau gangguan server (5xx).
     GEMINI_MODEL boleh berisi beberapa model dipisah koma, misalnya
-    "gemini-3.1-flash-lite,gemini-2.5-flash". Kalau model pertama terus sibuk (503/429),
+    "gemini-3.8-flash,gemini-3.1-flash-lite". Kalau model pertama terus sibuk (503/429) atau
+    sudah tidak tersedia (404),
     model berikutnya dicoba. Butuh GEMINI_API_KEY di variabel lingkungan. JANGAN simpan kunci di kode atau repo.
     """
     import json
@@ -59,7 +60,7 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
     kunci = api_key or os.environ.get("GEMINI_API_KEY")
     if not kunci:
         raise RuntimeError('GEMINI_API_KEY belum diatur. Isi di backend/.env atau jalankan: export GEMINI_API_KEY="KUNCI_KAMU"')
-    daftar = model or os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite,gemini-2.5-flash"
+    daftar = model or os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash,gemini-3.1-flash-lite"
     daftar_model = [m.strip() for m in daftar.split(",") if m.strip()]
 
     def _panggil(nama_model, badan):
@@ -75,8 +76,10 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
             except urllib.error.HTTPError as e:
                 isi = e.read().decode("utf-8", "replace")[:300]
                 masalah = f"Gemini ({nama_model}) menolak permintaan (HTTP {e.code}): {isi}"
+                if e.code == 404:
+                    raise _Sibuk(masalah)  # model sudah tidak tersedia: langsung coba model berikutnya
                 if e.code not in (429, 500, 502, 503, 504):
-                    raise RuntimeError(masalah)  # salah kunci, salah nama model, dsb: ulang tidak membantu
+                    raise RuntimeError(masalah)  # salah kunci dsb: ulang tidak membantu
             except (TimeoutError, urllib.error.URLError, OSError) as e:
                 masalah = f"Tidak bisa terhubung ke Gemini atau terlalu lama menunggu ({type(e).__name__}: {e})"
             else:
