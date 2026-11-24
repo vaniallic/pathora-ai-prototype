@@ -11,7 +11,7 @@ import os
 MODEL_ANTHROPIC_DEFAULT = "claude-sonnet-5-5"
 
 
-def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, maks_coba=2):
+def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, maks_coba=2, sisa_waktu=None):
     """Penghubung ke Claude (Anthropic). Kunci dibaca dari ANTHROPIC_API_KEY di server.
 
     Semua galat dari API diubah jadi RuntimeError, supaya asisten.py bisa jatuh ke teks cadangan
@@ -26,10 +26,15 @@ def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, ma
     nama_model = model or os.environ.get("ANTHROPIC_MODEL") or MODEL_ANTHROPIC_DEFAULT
 
     def llm(system, user):
+        batas = timeout
+        if sisa_waktu is not None:
+            batas = min(timeout, sisa_waktu())
+            if batas < 1:
+                raise RuntimeError("batas waktu habis sebelum Claude sempat menjawab")
         try:
             r = client.messages.create(
                 model=nama_model, max_tokens=maks_token, system=system,
-                messages=[{"role": "user", "content": user}],
+                messages=[{"role": "user", "content": user}], timeout=batas,
             )
         except anthropic.APIStatusError as e:
             raise RuntimeError(f"Claude menolak permintaan (HTTP {e.status_code}): {str(e)[:300]}") from e
@@ -43,14 +48,16 @@ def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, ma
     return llm
 
 
-def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=40, maks_coba=2, jeda=3):
+def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=40, maks_coba=2, jeda=3, sisa_waktu=None):
     """Penghubung ke Gemini lewat REST (hanya pustaka bawaan Python, tanpa pip install).
 
     Mengulang otomatis kalau timeout, batas laju (429), atau gangguan server (5xx).
     GEMINI_MODEL boleh berisi beberapa model dipisah koma, misalnya
     "gemini-3.8-flash,gemini-3.1-flash-lite". Kalau model pertama terus sibuk (503/429) atau
     sudah tidak tersedia (404),
-    model berikutnya dicoba. Butuh GEMINI_API_KEY di variabel lingkungan. JANGAN simpan kunci di kode atau repo.
+    model berikutnya dicoba. sisa_waktu (opsional): fungsi yang mengembalikan sisa detik yang boleh dipakai;
+    kalau habis, pemanggilan berhenti dan galat dilempar supaya pemanggil memakai cadangan.
+    Butuh GEMINI_API_KEY di variabel lingkungan. JANGAN simpan kunci di kode atau repo.
     """
     import json
     import time
@@ -67,11 +74,17 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=40, maks_
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{nama_model}:generateContent"
         masalah = ""
         for percobaan in range(maks_coba):
+            batas = timeout
+            if sisa_waktu is not None:
+                sisa = sisa_waktu()
+                if sisa < 1:
+                    raise _Sibuk(masalah or "batas waktu habis sebelum Gemini sempat menjawab")
+                batas = min(timeout, sisa)
             req = urllib.request.Request(
                 url, data=badan, method="POST",
                 headers={"Content-Type": "application/json", "x-goog-api-key": kunci})
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as r:
+                with urllib.request.urlopen(req, timeout=batas) as r:
                     data = json.load(r)
             except urllib.error.HTTPError as e:
                 isi = e.read().decode("utf-8", "replace")[:300]
@@ -90,7 +103,10 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=40, maks_
                     raise RuntimeError(f"Gemini tidak mengembalikan teks (alasan: {kandidat.get('finishReason', 'tidak diketahui')})")
                 return teks
             if percobaan < maks_coba - 1:
-                time.sleep(jeda * (percobaan + 1))
+                tunggu = jeda * (percobaan + 1)
+                if sisa_waktu is not None and sisa_waktu() < tunggu + 1:
+                    break  # tidak cukup waktu untuk mencoba lagi
+                time.sleep(tunggu)
         raise _Sibuk(masalah)
 
     def llm(system, user):
@@ -114,9 +130,10 @@ class _Sibuk(RuntimeError):
     """Model sibuk atau tidak terjangkau setelah beberapa percobaan."""
 
 
-def buat_llm(penyedia="gemini"):
+def buat_llm(penyedia="gemini", **opsi):
+    """opsi diteruskan ke penghubung, misalnya sisa_waktu=... (dipakai backend)."""
     if penyedia == "gemini":
-        return buat_llm_gemini()
+        return buat_llm_gemini(**opsi)
     if penyedia == "anthropic":
-        return buat_llm_anthropic()
+        return buat_llm_anthropic(**opsi)
     raise ValueError(f"penyedia tidak dikenal: {penyedia}")

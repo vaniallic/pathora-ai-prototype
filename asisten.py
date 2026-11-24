@@ -9,6 +9,7 @@ Pakai tanpa API (preferensi dimasukkan manual, penjelasan dari data):
 import argparse
 import csv
 import json
+from datetime import date
 
 from ekstrak import GagalEkstraksi, ekstrak_aturan, ekstrak_preferensi, validasi_prefs
 from narasi import narasi_cadangan, tulis_narasi
@@ -27,9 +28,39 @@ def muat_jarak(path):
     return jarak
 
 
-def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None, cadangan_aturan=False):
+def terapkan_konteks(prefs, konteks, hari_ini=None):
+    """Lengkapi preferensi dengan konteks trip dari aplikasi (tanggal, jumlah orang).
+    Konteks hanya petunjuk: yang sudah disebut wisatawan di teks tidak ditimpa."""
+    if not konteks:
+        return prefs
+    hari_ini = hari_ini or date.today()
+    p = dict(prefs)
+
+    def tgl(x):
+        try:
+            return date.fromisoformat(x) if isinstance(x, str) else None
+        except ValueError:
+            return None
+    mulai, akhir = tgl(konteks.get("tanggal_mulai")), tgl(konteks.get("tanggal_akhir"))
+    if mulai and mulai < hari_ini:
+        mulai = None  # tanggal yang sudah lewat diabaikan
+    if p.get("tanggal_mulai") is None and mulai:
+        p["tanggal_mulai"] = mulai.isoformat()
+    if p.get("durasi_hari") is None and mulai and akhir and 1 <= (akhir - mulai).days + 1 <= 14:
+        p["durasi_hari"] = (akhir - mulai).days + 1
+    orang = konteks.get("jumlah_orang")
+    if p.get("jumlah_orang") is None and isinstance(orang, int) and not isinstance(orang, bool) and 1 <= orang <= 50:
+        p["jumlah_orang"] = orang
+    if p.get("durasi_hari") is not None:
+        p["perlu_tanya"] = []
+    return p
+
+
+def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None, cadangan_aturan=False, konteks=None):
     """cadangan_aturan=True: kalau model bahasa tidak bisa dihubungi, permintaan dipahami lewat
-    kata kunci (ekstrak_aturan) dan penjelasan memakai teks dari data, supaya pengguna tetap dapat rencana."""
+    kata kunci (ekstrak_aturan) dan penjelasan memakai teks dari data, supaya pengguna tetap dapat rencana.
+    konteks (opsional): {tanggal_mulai, tanggal_akhir, jumlah_orang, kegiatan_dipilih} dari aplikasi.
+    Kegiatan di kegiatan_dipilih tidak ditawarkan lagi."""
     tanpa_model = False
     try:
         prefs = ekstrak_preferensi(teks, llm)
@@ -43,6 +74,10 @@ def jawab(teks, kegiatan_siap, llm, jarak=None, semua_kegiatan=None, cadangan_at
         if not cadangan_aturan:
             return {"tipe": "galat", "pesan": "Maaf, asisten sedang sibuk. Coba lagi sebentar lagi."}
         prefs, tanpa_model = ekstrak_aturan(teks), True
+    prefs = terapkan_konteks(prefs, konteks)
+    if konteks and konteks.get("kegiatan_dipilih"):
+        sudah = {str(x) for x in konteks["kegiatan_dipilih"]}
+        kegiatan_siap = [k for k in kegiatan_siap if k["id"] not in sudah]
     if prefs["di_luar_cakupan"]:
         return {"tipe": "tanya", "pesan": "Maaf, Pathora fokus pada kegiatan alam dan budaya lokal di Bali, "
                 "jadi aku belum bisa membantu soal itu (misalnya hotel, tiket, atau restoran). "

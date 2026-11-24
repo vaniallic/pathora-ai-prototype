@@ -68,3 +68,22 @@ class PembatasLogin:
 
     def reset(self, kunci):
         self.gagal.pop(kunci, None)
+
+
+class PembatasLaju:
+    """Maksimal `maks` permintaan per kunci (misalnya IP) dalam `jendela` detik."""
+
+    def __init__(self, maks, jendela):
+        self.maks, self.jendela = maks, jendela
+        self.catatan = defaultdict(deque)
+
+    def coba(self, kunci):
+        """Mengembalikan 0 kalau boleh (dan mencatatnya), atau detik yang perlu ditunggu."""
+        sekarang = time.monotonic()
+        q = self.catatan[kunci]
+        while q and q[0] <= sekarang - self.jendela:
+            q.popleft()
+        if len(q) >= self.maks:
+            return max(1, int(q[0] + self.jendela - sekarang) + 1)
+        q.append(sekarang)
+        return 0
