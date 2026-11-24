@@ -75,7 +75,8 @@ Berkas `backend/.env` dan `backend/*.db` sudah ada di `.gitignore`, jadi tidak i
 | Metode | Alamat | Login? | Fungsi |
 |---|---|---|---|
 | GET | /api/health | tidak | status server, jumlah kegiatan siap, kuota harian |
-| GET | /api/kegiatan | tidak | daftar kegiatan siap (tanpa kontak host) |
+| GET | /api/kegiatan | tidak | daftar kegiatan siap, dengan `host_id`, `host_nama`, `lat`, `lng`, `jam_mulai`, `tutup_purnama_tilem` (tanpa kontak host) |
+| GET | /api/kalender | tidak | purnama dan tilem `?dari=&sampai=` (perkiraan astronomis, waktu Bali, maks 400 hari) |
 | POST | /api/auth/signup | tidak | `{nama, email, password, peran?, komunitas?, tempat?}` -> `{token, pengguna}` |
 | POST | /api/auth/login | tidak | `{email, password}` -> `{token, pengguna}` |
 | GET | /api/auth/me | ya | pengguna + `kuota: {batas, terpakai, sisa}` |
@@ -115,7 +116,7 @@ Alur: wisatawan menyusun trip -> mengajukan kegiatan ke host -> host menyetujui 
 | GET / PATCH | /api/trips/{id} | detail (anggota, items, acara, pengeluaran) / ubah nama, tanggal, bendahara |
 | POST | /api/trips/join | gabung dengan `{kode}` undangan |
 | PUT | /api/trips/{id}/saya | `{hari_sibuk: [tanggal]}` |
-| POST / DELETE | /api/trips/{id}/items[/{item}] | tambah item `{kegiatan_id, tanggal, jam?, jumlah_orang?}` / hapus (selain disetujui/lunas) |
+| POST / DELETE | /api/trips/{id}/items[/{item}] | tambah item `{kegiatan_id, tanggal, jam?, jumlah_orang?}` (jam kosong: jam mulai pertama kegiatan) / hapus (selain disetujui/lunas) |
 | POST | /api/trips/{id}/items/{item}/request | ajukan item draft ke host |
 | POST / DELETE | /api/trips/{id}/events[/{acara}] | acara pribadi di kalender |
 | POST / DELETE | /api/trips/{id}/expenses[/{id}] | pengeluaran `{judul, jumlah, dibayar_oleh, dibagi_ke, kategori?}` |
@@ -131,6 +132,11 @@ Alur: wisatawan menyusun trip -> mengajukan kegiatan ke host -> host menyetujui 
 | GET | /api/host/payouts | payout host (simulasi) |
 | GET / POST | /api/passport[/stamp] | stempel saya / klaim stempel dengan `{kode}` hadir |
 | POST | /api/akun/plus | (simulasi) `{uji_coba: true}` 7 hari sekali per akun, atau +30 hari |
+
+Hari tutup: tanggal yang ditutup host, dan purnama/tilem untuk kegiatan bertanda `tutup_purnama_tilem`
+(K01, K05, K06, K12 menurut data contoh). Tanggal purnama/tilem dihitung astronomis (Meeus, waktu Bali) dan
+bisa selisih satu hari dari kalender Bali; cocokkan dengan kalender resmi sebelum dipakai untuk penawaran resmi.
+Lokasi, jam mulai, dan tanda purnama/tilem ada di `data/lokasi_jadwal.csv` (CONTOH, disalin dari front-end).
 
 Aturan: status item `draft -> diajukan -> disetujui | ditolak`, lalu `disetujui -> lunas`. Bayar hanya setelah
 disetujui; item ditolak tidak dihitung biaya. Kuota per sesi (kegiatan + tanggal + jam). Kegiatan yang sama di

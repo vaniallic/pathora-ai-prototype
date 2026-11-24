@@ -7,6 +7,7 @@ Dokumentasi API otomatis: http://localhost:8000/docs
 Halaman uji sederhana:    http://localhost:8000/
 """
 import contextvars
+import csv
 import logging
 import re
 import sys
@@ -38,8 +39,11 @@ log = logging.getLogger("pathora")
 # Kolom kegiatan yang aman ditampilkan ke publik (kontak host dan catatan internal tidak ikut).
 KOLOM_PUBLIK = ["id", "nama", "desa", "tema", "harga_per_orang", "durasi_jam", "kuota", "tingkat_kesulitan",
                 "cocok_untuk", "fasilitas", "titik_kumpul", "cara_ke_sana", "aturan_budaya", "perlengkapan",
-                "cuaca_buruk", "hari_tutup", "demo"]
+                "cuaca_buruk", "hari_tutup", "demo",
+                # BACKEND-BRIEF 3.4: nama pengelola (bukan kontaknya), lokasi, dan jam mulai
+                "host_id", "host_nama", "lat", "lng", "jam_mulai", "tutup_purnama_tilem"]
 POLA_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+POLA_JAM_MULAI = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 # ---------- skema permintaan dan balasan ----------
@@ -134,6 +138,27 @@ def _ip(request):
     return request.client.host if request.client else "-"
 
 
+def lengkapi_lokasi_jadwal(kegiatan, host):
+    """Tambahkan nama host (dari tab Host) serta lat/lng, jam mulai, dan tanda tutup purnama/tilem
+    (dari data/lokasi_jadwal.csv, angka CONTOH). Kegiatan tanpa data mendapat null."""
+    nama_host = {h["host_id"]: h["nama"] for h in host}
+    lj = {}
+    if config.DATA["lokasi_jadwal"].exists():
+        with open(config.DATA["lokasi_jadwal"], newline="", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                lj[r["ID"].strip()] = r
+    for k in kegiatan:
+        k["host_nama"] = nama_host.get(k.get("host_id"))
+        r = lj.get(k["id"])
+        try:
+            k["lat"], k["lng"] = (float(r["Lat"]), float(r["Lng"])) if r else (None, None)
+        except (TypeError, ValueError):
+            k["lat"] = k["lng"] = None
+        jam = (r or {}).get("Jam mulai", "")
+        k["jam_mulai"] = [j for j in jam.split() if POLA_JAM_MULAI.match(j)]
+        k["tutup_purnama_tilem"] = (r or {}).get("Tutup saat purnama/tilem", "").strip().lower() == "ya"
+
+
 def muat_kegiatan(demo, masa_berlaku_hari=None):
     """Membaca CSV, memeriksa kesiapan, mengembalikan (kegiatan_siap, semua_kegiatan, laporan)."""
     kegiatan = bersihkan_kegiatan(baca_csv(config.DATA["kegiatan"], KEGIATAN_KOLOM))
@@ -144,6 +169,7 @@ def muat_kegiatan(demo, masa_berlaku_hari=None):
         else:
             for k in kegiatan:
                 k["demo"] = True
+    lengkapi_lokasi_jadwal(kegiatan, host)
     laporan = periksa(kegiatan, host, date.today(), masa_berlaku_hari, demo=demo)
     siap_id = {l["id"] for l in laporan if l["siap_direkomendasikan"]}
     for k in kegiatan:  # tanggal -> teks supaya bisa dikirim sebagai JSON

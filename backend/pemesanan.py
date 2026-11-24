@@ -6,7 +6,8 @@ Aturan bisnis mengikuti BACKEND-BRIEF bagian 6.3 dan store.js di front-end:
 - pembayaran hanya untuk item disetujui; item ditolak tidak dikenai biaya
 - keputusan hanya oleh host pemilik kegiatan
 - kuota: jumlah orang yang disetujui/lunas di satu sesi (kegiatan + tanggal + jam) tidak boleh melebihi kuota
-- hari tutup: kegiatan tidak bisa diajukan pada tanggal yang ditutup host
+- hari tutup: kegiatan tidak bisa diajukan pada tanggal yang ditutup host, dan kegiatan yang terpengaruh purnama
+  atau tilem dianggap tutup pada hari itu (tanggal dihitung astronomis, lihat kalender.py)
 - duplikat: kegiatan yang sama di tanggal yang sama (selain ditolak) tidak boleh dua kali dalam satu trip
 - biaya item = harga per orang x jumlah orang (angka dari data, bukan dari pengguna)
 - patungan: saldo (dibayar - bagian), pelunasan greedy dari yang paling berutang (sama dengan PS.settle())
@@ -22,6 +23,8 @@ from typing import List, Optional
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+
+from .kalender import fase_bulan, fase_pada
 
 STATUS_ITEM = ("draft", "diajukan", "disetujui", "ditolak", "lunas")
 POLA_JAM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -166,7 +169,7 @@ class HariSibuk(BaseModel):
 class ItemBaru(BaseModel):
     kegiatan_id: str = Field(min_length=1, max_length=10)
     tanggal: str
-    jam: str = "09:00"
+    jam: Optional[str] = None  # kosong: jam mulai pertama kegiatan itu
     jumlah_orang: Optional[int] = Field(default=None, ge=1, le=50)
 
     @field_validator("tanggal")
@@ -177,7 +180,7 @@ class ItemBaru(BaseModel):
     @field_validator("jam")
     @classmethod
     def cek_jam(cls, v):
-        if not POLA_JAM.match(v):
+        if v is not None and not POLA_JAM.match(v):
             raise ValueError("jam harus berformat HH:MM")
         return v
 
@@ -335,7 +338,14 @@ def pasang(app, db, katalog, pengguna_aktif, admin_emails=(), mode_demo=True):
         return d
 
     def tutup_pada(c, kid, tgl):
-        return c.execute("SELECT 1 FROM hari_tutup WHERE kegiatan_id = ? AND tanggal = ?", (kid, tgl)).fetchone()
+        """Alasan tutup (teks) atau None. Dua sumber: hari tutup dari host, dan purnama/tilem."""
+        if c.execute("SELECT 1 FROM hari_tutup WHERE kegiatan_id = ? AND tanggal = ?", (kid, tgl)).fetchone():
+            return "Kegiatan ini tutup pada tanggal tersebut."
+        if katalog.get(kid, {}).get("tutup_purnama_tilem"):
+            fase = fase_pada(tgl)
+            if fase:
+                return f"Kegiatan ini tutup saat {fase} ({tgl}). Pilih tanggal lain."
+        return None
 
     def terisi(c, kid, tgl, jam, kecuali=None):
         r = c.execute("SELECT COALESCE(SUM(jumlah_orang), 0) AS n FROM item WHERE kegiatan_id = ? AND tanggal = ? "
@@ -447,15 +457,17 @@ def pasang(app, db, katalog, pengguna_aktif, admin_emails=(), mode_demo=True):
                              "AND status != 'ditolak'", (trip_id, d.kegiatan_id, d.tanggal)).fetchone()
             if dupe:
                 raise HTTPException(409, "Kegiatan ini sudah ada di tanggal yang sama.")
-            if tutup_pada(c, d.kegiatan_id, d.tanggal):
-                raise HTTPException(409, "Kegiatan ini tutup pada tanggal tersebut.")
+            alasan = tutup_pada(c, d.kegiatan_id, d.tanggal)
+            if alasan:
+                raise HTTPException(409, alasan)
             orang = d.jumlah_orang or c.execute("SELECT COUNT(*) AS n FROM anggota WHERE trip_id = ?",
                                                 (trip_id,)).fetchone()["n"]
             if orang > k["kuota"]:
                 raise HTTPException(422, f"Kuota kegiatan ini {k['kuota']} orang per sesi.")
             cur = c.execute("INSERT INTO item (trip_id, kegiatan_id, tanggal, jam, jumlah_orang, status, oleh_id, "
                             "dibuat, diperbarui) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)",
-                            (trip_id, d.kegiatan_id, d.tanggal, d.jam, orang, p["id"], _sekarang(), _sekarang()))
+                            (trip_id, d.kegiatan_id, d.tanggal, d.jam or (k.get("jam_mulai") or ["09:00"])[0], orang,
+                             p["id"], _sekarang(), _sekarang()))
             # rentang trip ikut melebar, sama seperti store.js
             if d.tanggal < t["tanggal_mulai"]:
                 c.execute("UPDATE trip SET tanggal_mulai = ? WHERE id = ?", (d.tanggal, trip_id))
@@ -487,8 +499,9 @@ def pasang(app, db, katalog, pengguna_aktif, admin_emails=(), mode_demo=True):
                 raise HTTPException(409, f"Hanya item draft yang bisa diajukan (status sekarang: {it['status']}).")
             if it["tanggal"] < hari_ini().isoformat():
                 raise HTTPException(422, "Tanggal kegiatan sudah lewat.")
-            if tutup_pada(c, it["kegiatan_id"], it["tanggal"]):
-                raise HTTPException(409, "Kegiatan ini tutup pada tanggal tersebut.")
+            alasan = tutup_pada(c, it["kegiatan_id"], it["tanggal"])
+            if alasan:
+                raise HTTPException(409, alasan)
             c.execute("UPDATE item SET status = 'diajukan', diperbarui = ? WHERE id = ?", (_sekarang(), item_id))
             return item_dict(c.execute("SELECT * FROM item WHERE id = ?", (item_id,)).fetchone())
 
@@ -600,7 +613,9 @@ def pasang(app, db, katalog, pengguna_aktif, admin_emails=(), mode_demo=True):
                     tutup.setdefault(r["kegiatan_id"], []).append(r["tanggal"])
             return {"host_ids": sorted(host_ids(c, p)),
                     "kegiatan": [{"id": k, "nama": katalog[k]["nama"], "kuota": katalog[k]["kuota"],
-                                  "hari_tutup": tutup.get(k, [])} for k in sorted(kid)]}
+                                  "hari_tutup": tutup.get(k, []), "jam_mulai": katalog[k].get("jam_mulai") or [],
+                                  "tutup_purnama_tilem": bool(katalog[k].get("tutup_purnama_tilem"))}
+                                 for k in sorted(kid)]}
 
     @app.post("/api/host/klaim", tags=["host"])
     def klaim(d: Klaim, p=Depends(pengguna_aktif)):
@@ -692,6 +707,21 @@ def pasang(app, db, katalog, pengguna_aktif, admin_emails=(), mode_demo=True):
         with db.koneksi() as c:
             return [r["tanggal"] for r in c.execute(
                 "SELECT tanggal FROM hari_tutup WHERE kegiatan_id = ? ORDER BY tanggal", (kegiatan_id,))]
+
+    @app.get("/api/kalender", tags=["kalender"])
+    def kalender(dari: Optional[str] = None, sampai: Optional[str] = None):
+        """Purnama dan tilem (perkiraan astronomis, waktu Bali) antara dua tanggal, maksimal 400 hari.
+        Default: hari ini sampai 120 hari ke depan."""
+        try:
+            a = date.fromisoformat(dari) if dari else hari_ini()
+            b = date.fromisoformat(sampai) if sampai else a + timedelta(days=120)
+        except ValueError:
+            raise HTTPException(422, "dari dan sampai harus berformat YYYY-MM-DD.")
+        if b < a or (b - a).days > 400:
+            raise HTTPException(422, "Rentang tanggal harus 0 sampai 400 hari.")
+        return {"perkiraan": True, "catatan": "Dihitung astronomis (Meeus). Kalender Bali bisa selisih satu hari.",
+                "fase": fase_bulan(a, b),
+                "kegiatan_tutup_purnama_tilem": sorted(k for k, v in katalog.items() if v.get("tutup_purnama_tilem"))}
 
     @app.get("/api/host/payouts", tags=["host"])
     def payout_host(p=Depends(pengguna_aktif)):
