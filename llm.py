@@ -43,7 +43,7 @@ def buat_llm_anthropic(model=None, api_key=None, maks_token=1024, timeout=60, ma
     return llm
 
 
-def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_coba=3, jeda=5):
+def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=40, maks_coba=2, jeda=3):
     """Penghubung ke Gemini lewat REST (hanya pustaka bawaan Python, tanpa pip install).
 
     Mengulang otomatis kalau timeout, batas laju (429), atau gangguan server (5xx).
