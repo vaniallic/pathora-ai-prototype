@@ -8,3 +8,6 @@ out*/
 push/
 push2/
 .DS_Store
+env
+env.txt
+*.env
