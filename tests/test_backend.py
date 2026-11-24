@@ -53,8 +53,13 @@ class TesBackend(unittest.TestCase):
         self.assertEqual(self.c.get("/api/health").json()["status"], "ok")
         keg = self.c.get("/api/kegiatan").json()
         self.assertTrue(keg)
-        self.assertNotIn("host_id", keg[0])
-        self.assertNotIn("sumber", keg[0])
+        # nama dan ID host boleh tampil (BACKEND-BRIEF 3.4), kontak dan catatan internalnya tidak
+        self.assertEqual((keg[0]["host_id"], keg[0]["host_nama"]), ("H01", "Kelompok usaha arak Oemah Arak"))
+        teks = str(keg)
+        for rahasia in ("kontak_wa", "sumber", "087866252512", "status_kontak", "komisi"):
+            self.assertNotIn(rahasia, teks)
+        self.assertEqual(keg[0]["jam_mulai"], ["09:00"])
+        self.assertEqual((keg[0]["lat"], keg[0]["lng"]), (-8.47, 115.445))
 
     def test_signup_login_me(self):
         self.daftar()

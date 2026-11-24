@@ -18,8 +18,19 @@ try:
 except ImportError as e:
     raise unittest.SkipTest(f"lewati tes backend: {e}")
 
-NANTI = (date.today() + timedelta(days=30)).isoformat()
-LUSA = (date.today() + timedelta(days=31)).isoformat()
+from backend.kalender import fase_bulan, fase_pada  # noqa: E402
+
+
+def _bebas(mulai):
+    """Tanggal pertama sejak `mulai` yang hari itu dan besoknya bukan purnama/tilem (supaya tes tidak bergantung bulan)."""
+    d = mulai
+    while fase_pada(d) or fase_pada(d + timedelta(days=1)):
+        d += timedelta(days=1)
+    return d
+
+
+NANTI = _bebas(date.today() + timedelta(days=30)).isoformat()
+LUSA = (date.fromisoformat(NANTI) + timedelta(days=1)).isoformat()
 KEMARIN = (date.today() - timedelta(days=1)).isoformat()
 
 
@@ -253,6 +264,36 @@ class TesPatungan(Dasar):
         r = self.c.post(f"/api/trips/{t['id']}/expenses", json={"judul": "x", "jumlah": 10, "dibayar_oleh": u["id"],
                                                                  "dibagi_ke": [u["id"], 9999]}, headers=h)
         self.assertEqual(r.status_code, 422)
+
+
+class TesKalender(Dasar):
+    def test_tanggal_dikenal(self):
+        r = self.c.get("/api/kalender?dari=2026-10-20&sampai=2027-01-25").json()
+        self.assertTrue(r["perkiraan"])
+        purnama = [f["tanggal"] for f in r["fase"] if f["fase"] == "purnama"]
+        tilem = [f["tanggal"] for f in r["fase"] if f["fase"] == "tilem"]
+        # sama dengan daftar di data.js front-end
+        self.assertEqual(purnama, ["2026-10-26", "2026-11-24", "2026-12-24", "2027-01-22"])
+        self.assertEqual(tilem, ["2026-11-09", "2026-12-09", "2027-01-08"])
+        self.assertEqual(r["kegiatan_tutup_purnama_tilem"], ["K01", "K05", "K06", "K12"])
+
+    def test_rentang_tidak_valid(self):
+        self.assertEqual(self.c.get("/api/kalender?dari=2026-01-01&sampai=2028-01-01").status_code, 422)
+        self.assertEqual(self.c.get("/api/kalender?dari=besok").status_code, 422)
+
+    def test_tutup_saat_purnama_tilem(self):
+        h, _ = self.akun()
+        t = self.trip(h)
+        fase = fase_bulan(date.today() + timedelta(days=10), date.today() + timedelta(days=60))[0]
+        r = self.item(h, t["id"], kid="K12", tgl=fase["tanggal"])            # K12 terpengaruh purnama/tilem
+        self.assertEqual(r.status_code, 409)
+        self.assertIn(fase["fase"], r.json()["detail"])
+        self.assertEqual(self.item(h, t["id"], kid="K09", tgl=fase["tanggal"]).status_code, 201)  # K09 tidak
+
+    def test_jam_default_dari_jadwal(self):
+        h, _ = self.akun()
+        t = self.trip(h)
+        self.assertEqual(self.item(h, t["id"], kid="K06").json()["jam"], "19:00")
 
 
 class TesPlus(Dasar):

@@ -60,4 +60,5 @@ DATA = {
     "host": AKAR / "data" / "Host.csv",
     "isian_demo": AKAR / "data" / "isian_demo.csv",
     "jarak": AKAR / "data" / "jarak_desa.csv",  # opsional, belum ada
+    "lokasi_jadwal": AKAR / "data" / "lokasi_jadwal.csv",  # lat/lng, jam mulai, tutup purnama/tilem (CONTOH)
 }
