@@ -1,0 +1,8 @@
+.git
+**/__pycache__
+backend/.env
+backend/*.db
+out*/
+*.zip
+push/
+.DS_Store
