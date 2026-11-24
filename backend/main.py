@@ -153,7 +153,9 @@ def muat_kegiatan(demo, masa_berlaku_hari=None):
 
 def buat_llm_default():
     from llm import buat_llm
-    return buat_llm(config.PENYEDIA_AI, sisa_waktu=sisa_waktu)
+    # Satu percobaan per model: kalau model sibuk (503), langsung pindah ke model cadangan berikutnya
+    # daripada menunggu jeda untuk mengulang model yang sama. Waktu jawab dibatasi AI_BATAS_DETIK.
+    return buat_llm(config.PENYEDIA_AI, sisa_waktu=sisa_waktu, maks_coba=1)
 
 
 def create_app(db_path=None, pembuat_llm=None, demo=None):

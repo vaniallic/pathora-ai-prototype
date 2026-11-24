@@ -158,3 +158,16 @@ class TesBatasWaktu(unittest.TestCase):
                 f("s", "u")
         self.assertEqual(m.call_count, 1)
         tidur.assert_not_called()
+
+
+class TesSatuPercobaanPerModel(unittest.TestCase):
+    def test_sibuk_langsung_pindah_tanpa_jeda(self):
+        def palsu(req, timeout=None):
+            if "model-a" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 503, "sibuk", {}, io.BytesIO(b"busy"))
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu) as m, mock.patch("time.sleep") as tidur:
+            f = llm.buat_llm_gemini(api_key="k", model="model-a,model-b", maks_coba=1, sisa_waktu=lambda: 7)
+            self.assertEqual(f("s", "u"), "ok")
+        self.assertEqual(m.call_count, 2)
+        tidur.assert_not_called()
