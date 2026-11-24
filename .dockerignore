@@ -10,3 +10,5 @@ push2/
 env
 env.txt
 *.env
+push3/
+deploy/
