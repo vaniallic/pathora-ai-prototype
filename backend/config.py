@@ -46,6 +46,8 @@ AI_BATAS_DETIK = float(os.environ.get("AI_BATAS_DETIK", "7"))
 BATAS_RENCANA_PER_MENIT = int(os.environ.get("BATAS_RENCANA_PER_MENIT", "20"))
 BATAS_DAFTAR_PER_JAM = int(os.environ.get("BATAS_DAFTAR_PER_JAM", "10"))
 TOKEN_BERLAKU_JAM = int(os.environ.get("TOKEN_BERLAKU_JAM", "24"))
+# Email admin (pisahkan koma). Admin bisa menetapkan akun host ke ID host di sheet (H01, ...).
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 
 JWT_SECRET = os.environ.get("JWT_SECRET")
 JWT_SEMENTARA = not JWT_SECRET

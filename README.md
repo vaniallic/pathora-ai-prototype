@@ -103,13 +103,48 @@ permintaan dipahami lewat kata kunci dan penjelasan disusun dari data, jadi teta
 `/api/rencana` membawa header `X-Kuota-Batas` dan `X-Kuota-Sisa`. Jawaban `galat` tidak memotong kuota, dan
 menghapus riwayat tidak mengembalikan kuota.
 
+### Pemesanan (P2)
+
+Alur: wisatawan menyusun trip -> mengajukan kegiatan ke host -> host menyetujui atau menolak -> wisatawan membayar
+(simulasi) -> host memberi kode hadir -> wisatawan mendapat stempel Paspor Alam. Semua pembayaran adalah SIMULASI.
+
+| Metode | Alamat | Fungsi |
+|---|---|---|
+| POST | /api/trips | buat trip `{nama, tanggal_mulai, tanggal_akhir}`; pembuat jadi bendahara |
+| GET | /api/trips | trip yang saya ikuti |
+| GET / PATCH | /api/trips/{id} | detail (anggota, items, acara, pengeluaran) / ubah nama, tanggal, bendahara |
+| POST | /api/trips/join | gabung dengan `{kode}` undangan |
+| PUT | /api/trips/{id}/saya | `{hari_sibuk: [tanggal]}` |
+| POST / DELETE | /api/trips/{id}/items[/{item}] | tambah item `{kegiatan_id, tanggal, jam?, jumlah_orang?}` / hapus (selain disetujui/lunas) |
+| POST | /api/trips/{id}/items/{item}/request | ajukan item draft ke host |
+| POST / DELETE | /api/trips/{id}/events[/{acara}] | acara pribadi di kalender |
+| POST / DELETE | /api/trips/{id}/expenses[/{id}] | pengeluaran `{judul, jumlah, dibayar_oleh, dibagi_ke, kategori?}` |
+| GET / POST | /api/trips/{id}/settlement | saldo dan transfer pelunasan / tandai `{dari_id, ke_id, lunas}` |
+| POST | /api/trips/{id}/pay | bayar (simulasi) item disetujui -> lunas, payout dicatat |
+| GET | /api/host/kegiatan | kegiatan yang dikelola akun host dan hari tutupnya |
+| POST | /api/host/klaim | (mode demo) akun host mengklaim ID host sheet, misalnya `{host_id: "H04"}` |
+| POST | /api/admin/host | (admin, `ADMIN_EMAILS`) tetapkan akun host ke ID host |
+| GET | /api/host/requests | permintaan masuk (nama pendek pengaju, tanpa email), terisi sesi, kode hadir |
+| POST | /api/host/requests/{item}/decision | `{setuju: true/false}`, hanya host pemilik, cek kuota sesi |
+| POST | /api/host/closed | `{kegiatan_id, tanggal, tutup}` |
+| GET | /api/kegiatan/{id}/tutup | tanggal tutup kegiatan (publik) |
+| GET | /api/host/payouts | payout host (simulasi) |
+| GET / POST | /api/passport[/stamp] | stempel saya / klaim stempel dengan `{kode}` hadir |
+| POST | /api/akun/plus | (simulasi) `{uji_coba: true}` 7 hari sekali per akun, atau +30 hari |
+
+Aturan: status item `draft -> diajukan -> disetujui | ditolak`, lalu `disetujui -> lunas`. Bayar hanya setelah
+disetujui; item ditolak tidak dihitung biaya. Kuota per sesi (kegiatan + tanggal + jam). Kegiatan yang sama di
+tanggal yang sama tidak boleh dua kali dalam satu trip. Biaya = harga per orang x jumlah orang dari data. Item kegiatan
+otomatis masuk patungan sebagai pengeluaran yang dibayar bendahara. Kegiatan memakai ID sheet (K01, ...).
+
 **Galat.** Semua galat berbentuk `{"detail": "<teks>"}`.
 
 | Status | Arti |
 |---|---|
 | 401 | token tidak ada, tidak sah, atau habis |
 | 404 | data tidak ditemukan |
-| 409 | email sudah terdaftar |
+| 403 | bukan akun host, atau kegiatan bukan milik host ini |
+| 409 | email sudah terdaftar, duplikat, hari tutup, kuota sesi penuh, atau status item tidak sesuai |
 | 422 | isian tidak valid (pesan menyebut kolomnya) |
 | 429 | kuota harian habis, terlalu banyak percobaan login, atau terlalu banyak permintaan; ada header `Retry-After` (detik) |
 | 500 | kegagalan server sungguhan |

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from . import config
 from .db import Database
+from .pemesanan import paket_efektif, pasang as pasang_pemesanan
 from .keamanan import (HASH_PALSU, PembatasLaju, PembatasLogin, baca_token, buat_token, cek_password,
                        hash_password)
 
@@ -117,7 +118,7 @@ class PermintaanRencana(BaseModel):
 def _publik(p):
     return {"id": p["id"], "nama": p["nama"], "email": p["email"], "dibuat": p["dibuat"],
             "peran": p.get("peran") or "wisatawan", "komunitas": p.get("komunitas"),
-            "tempat": p.get("tempat"), "paket": p.get("paket") or "gratis"}
+            "tempat": p.get("tempat"), "paket": paket_efektif(p), "plus_sampai": p.get("plus_sampai")}
 
 
 # Batas waktu permintaan yang sedang diproses (dibaca penghubung model bahasa).
@@ -202,7 +203,7 @@ def create_app(db_path=None, pembuat_llm=None, demo=None):
         raise HTTPException(429, pesan, headers={"Retry-After": str(detik)})
 
     def info_kuota(p):
-        batas = config.KUOTA_HARIAN.get(p.get("paket") or "gratis", config.KUOTA_HARIAN["gratis"])
+        batas = config.KUOTA_HARIAN.get(paket_efektif(p), config.KUOTA_HARIAN["gratis"])
         terpakai = db.pemakaian(p["id"], hari_ini_wib().isoformat())
         return {"batas": batas, "terpakai": terpakai, "sisa": max(0, batas - terpakai)}
     bearer = HTTPBearer(auto_error=False)
@@ -339,6 +340,9 @@ def create_app(db_path=None, pembuat_llm=None, demo=None):
     def hapus(rid: int, p=Depends(pengguna_aktif)):
         if not db.hapus_permintaan(p["id"], rid):
             raise HTTPException(404, "Tidak ditemukan.")
+
+    # P2: trip, host, patungan, pembayaran simulasi, paspor, paket Plus (lihat pemesanan.py)
+    pasang_pemesanan(app, db, {k["id"]: k for k in siap}, pengguna_aktif, config.ADMIN_EMAILS, demo)
 
     app.state.db = db
     return app
