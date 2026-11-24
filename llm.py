@@ -47,8 +47,9 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
     """Penghubung ke Gemini lewat REST (hanya pustaka bawaan Python, tanpa pip install).
 
     Mengulang otomatis kalau timeout, batas laju (429), atau gangguan server (5xx).
-    Butuh GEMINI_API_KEY (dari Google AI Studio) di variabel lingkungan. Model bisa diatur lewat
-    GEMINI_MODEL. JANGAN simpan kunci di kode atau repo.
+    GEMINI_MODEL boleh berisi beberapa model dipisah koma, misalnya
+    "gemini-3.1-flash-lite,gemini-2.5-flash". Kalau model pertama terus sibuk (503/429),
+    model berikutnya dicoba. Butuh GEMINI_API_KEY di variabel lingkungan. JANGAN simpan kunci di kode atau repo.
     """
     import json
     import time
@@ -57,16 +58,12 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
 
     kunci = api_key or os.environ.get("GEMINI_API_KEY")
     if not kunci:
-        raise RuntimeError('GEMINI_API_KEY belum diatur. Jalankan: export GEMINI_API_KEY="KUNCI_KAMU"')
-    nama_model = model or os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{nama_model}:generateContent"
+        raise RuntimeError('GEMINI_API_KEY belum diatur. Isi di backend/.env atau jalankan: export GEMINI_API_KEY="KUNCI_KAMU"')
+    daftar = model or os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite,gemini-2.5-flash"
+    daftar_model = [m.strip() for m in daftar.split(",") if m.strip()]
 
-    def llm(system, user):
-        badan = json.dumps({
-            "system_instruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {"maxOutputTokens": maks_token},
-        }).encode("utf-8")
+    def _panggil(nama_model, badan):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{nama_model}:generateContent"
         masalah = ""
         for percobaan in range(maks_coba):
             req = urllib.request.Request(
@@ -77,7 +74,7 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
                     data = json.load(r)
             except urllib.error.HTTPError as e:
                 isi = e.read().decode("utf-8", "replace")[:300]
-                masalah = f"Gemini menolak permintaan (HTTP {e.code}): {isi}"
+                masalah = f"Gemini ({nama_model}) menolak permintaan (HTTP {e.code}): {isi}"
                 if e.code not in (429, 500, 502, 503, 504):
                     raise RuntimeError(masalah)  # salah kunci, salah nama model, dsb: ulang tidak membantu
             except (TimeoutError, urllib.error.URLError, OSError) as e:
@@ -91,9 +88,27 @@ def buat_llm_gemini(model=None, api_key=None, maks_token=2048, timeout=90, maks_
                 return teks
             if percobaan < maks_coba - 1:
                 time.sleep(jeda * (percobaan + 1))
-        raise RuntimeError(masalah)
+        raise _Sibuk(masalah)
+
+    def llm(system, user):
+        badan = json.dumps({
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"maxOutputTokens": maks_token},
+        }).encode("utf-8")
+        masalah = []
+        for nama_model in daftar_model:
+            try:
+                return _panggil(nama_model, badan)
+            except _Sibuk as e:
+                masalah.append(str(e))  # model ini sibuk: coba model berikutnya
+        raise RuntimeError(" | ".join(masalah))
 
     return llm
+
+
+class _Sibuk(RuntimeError):
+    """Model sibuk atau tidak terjangkau setelah beberapa percobaan."""
 
 
 def buat_llm(penyedia="gemini"):

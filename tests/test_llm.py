@@ -109,3 +109,14 @@ class TesAnthropic(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(RuntimeError):
                 llm.buat_llm_anthropic()
+
+
+class TesGeminiCadangan(unittest.TestCase):
+    def test_model_sibuk_pindah_ke_cadangan(self):
+        def palsu(req, timeout=None):
+            if "model-a" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 503, "sibuk", {}, io.BytesIO(b"high demand"))
+            return _balasan({"candidates": [{"content": {"parts": [{"text": "siap"}]}}]})
+        with mock.patch("urllib.request.urlopen", side_effect=palsu), mock.patch("time.sleep"):
+            f = llm.buat_llm_gemini(api_key="k", model="model-a,model-b")
+            self.assertEqual(f("s", "u"), "siap")
